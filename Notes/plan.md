@@ -82,6 +82,12 @@ Convert the application from a direct web server launch to a `mow.cli` multi-com
 - Add tests for `FormatWeather` in weather package
 - Existing weather API tests remain unchanged
 
+### 4. Add `weather-json` Command
+- New `mow.cli` command: `weather-json`
+- Fetches weather using same `weather.GetWeather()` with hardcoded coordinates
+- Outputs the `WeatherResponse` struct as indented JSON to stdout
+- Add `FormatWeatherJSON(w *WeatherResponse) (string, error)` to `weather/display.go`
+
 ## Pitfalls
 - `mow.cli` uses `app.Run(os.Args)` which calls `os.Exit` on error — keep action logic in separate testable functions
 - Existing tests reference package-level vars (`volumeStep`, `VolumeState`) — those stay in main package

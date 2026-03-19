@@ -68,6 +68,40 @@ func TestFormatWeatherContainsLocation(t *testing.T) {
 	assert.Contains(t, output, "93")
 }
 
+func TestFormatWeatherJSONIsValidJSON(t *testing.T) {
+	var resp WeatherResponse
+	err := json.Unmarshal([]byte(sampleAPIResponse), &resp)
+	require.NoError(t, err)
+
+	output, err := FormatWeatherJSON(&resp)
+	require.NoError(t, err)
+
+	// Should be valid JSON that round-trips back to a WeatherResponse
+	var roundTrip WeatherResponse
+	err = json.Unmarshal([]byte(output), &roundTrip)
+	require.NoError(t, err)
+
+	assert.InDelta(t, resp.Latitude, roundTrip.Latitude, 0.0001)
+	assert.Equal(t, resp.Timezone, roundTrip.Timezone)
+	assert.InDelta(t, resp.Current.Temperature, roundTrip.Current.Temperature, 0.01)
+	assert.Equal(t, resp.Current.Humidity, roundTrip.Current.Humidity)
+	assert.Len(t, roundTrip.Daily.Time, 7)
+	assert.Equal(t, resp.Daily.TemperatureMax, roundTrip.Daily.TemperatureMax)
+}
+
+func TestFormatWeatherJSONIsIndented(t *testing.T) {
+	var resp WeatherResponse
+	err := json.Unmarshal([]byte(sampleAPIResponse), &resp)
+	require.NoError(t, err)
+
+	output, err := FormatWeatherJSON(&resp)
+	require.NoError(t, err)
+
+	// Indented JSON should contain newlines and leading spaces
+	assert.Contains(t, output, "\n")
+	assert.Contains(t, output, "  ")
+}
+
 func TestFormatWeatherHasMultipleLines(t *testing.T) {
 	var resp WeatherResponse
 	err := json.Unmarshal([]byte(sampleAPIResponse), &resp)

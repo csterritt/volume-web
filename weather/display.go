@@ -1,6 +1,7 @@
 package weather
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -42,6 +43,15 @@ func FormatWeather(w *WeatherResponse) string {
 	}
 
 	return b.String()
+}
+
+// FormatWeatherJSON formats weather data as indented JSON.
+func FormatWeatherJSON(w *WeatherResponse) (string, error) {
+	data, err := json.MarshalIndent(w, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal weather to JSON: %w", err)
+	}
+	return string(data), nil
 }
 
 // describeWeatherCode returns a human-readable description for a WMO weather code.

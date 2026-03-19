@@ -46,6 +46,7 @@ func main() {
 
 	app.Command("serve", "Start the volume control web server", cmdServe)
 	app.Command("weather", "Display current weather and forecast", cmdWeather)
+	app.Command("weather-json", "Display current weather and forecast as JSON", cmdWeatherJSON)
 
 	app.Run(os.Args)
 }
@@ -64,6 +65,22 @@ func cmdWeather(cmd *cli.Cmd) {
 			cli.Exit(1)
 		}
 		fmt.Print(weather.FormatWeather(resp))
+	}
+}
+
+func cmdWeatherJSON(cmd *cli.Cmd) {
+	cmd.Action = func() {
+		resp, err := weather.GetWeather(defaultLat, defaultLon)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching weather: %v\n", err)
+			cli.Exit(1)
+		}
+		output, err := weather.FormatWeatherJSON(resp)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error formatting weather JSON: %v\n", err)
+			cli.Exit(1)
+		}
+		fmt.Println(output)
 	}
 }
 
