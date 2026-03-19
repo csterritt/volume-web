@@ -9,7 +9,11 @@ import (
 	"strconv"
 	"sync"
 
+	cli "github.com/jawher/mow.cli"
+
 	"github.com/gofiber/fiber/v2"
+
+	"volume-web/weather"
 )
 
 const (
@@ -32,7 +36,38 @@ var (
 	state  VolumeState
 )
 
+const (
+	defaultLat = 39.0438
+	defaultLon = -77.4874
+)
+
 func main() {
+	app := cli.App("volume-web", "Volume control server and weather tool")
+
+	app.Command("serve", "Start the volume control web server", cmdServe)
+	app.Command("weather", "Display current weather and forecast", cmdWeather)
+
+	app.Run(os.Args)
+}
+
+func cmdServe(cmd *cli.Cmd) {
+	cmd.Action = func() {
+		startServer()
+	}
+}
+
+func cmdWeather(cmd *cli.Cmd) {
+	cmd.Action = func() {
+		resp, err := weather.GetWeather(defaultLat, defaultLon)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching weather: %v\n", err)
+			cli.Exit(1)
+		}
+		fmt.Print(weather.FormatWeather(resp))
+	}
+}
+
+func startServer() {
 	if err := initializeVolumeState(); err != nil {
 		fmt.Printf("Failed to initialize volume state: %v\n", err)
 		return

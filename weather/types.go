@@ -6,7 +6,6 @@ type CurrentWeather struct {
 	Temperature        float64 `json:"temperature_2m"`
 	ApparentTemperature float64 `json:"apparent_temperature"`
 	Humidity           int     `json:"relative_humidity_2m"`
-	Pressure           float64 `json:"surface_pressure"`
 	WindSpeed          float64 `json:"wind_speed_10m"`
 	WindDirection      int     `json:"wind_direction_10m"`
 	WeatherCode        int     `json:"weather_code"`
@@ -28,7 +27,6 @@ type CurrentUnits struct {
 	Temperature        string `json:"temperature_2m"`
 	ApparentTemperature string `json:"apparent_temperature"`
 	Humidity           string `json:"relative_humidity_2m"`
-	Pressure           string `json:"surface_pressure"`
 	WindSpeed          string `json:"wind_speed_10m"`
 	WindDirection      string `json:"wind_direction_10m"`
 	WeatherCode        string `json:"weather_code"`

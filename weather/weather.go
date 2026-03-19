@@ -9,7 +9,7 @@ import (
 
 const (
 	defaultBaseURL = "https://api.open-meteo.com/v1/forecast"
-	currentParams  = "temperature_2m,apparent_temperature,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m,weather_code"
+	currentParams  = "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,weather_code"
 	dailyParams    = "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code"
 )
 
@@ -22,7 +22,7 @@ func GetWeather(lat, lon float64) (*WeatherResponse, error) {
 // GetWeatherWithClient retrieves weather data using a custom HTTP client and base URL.
 // This is primarily used for testing with mock servers.
 func GetWeatherWithClient(client *http.Client, baseURL string, lat, lon float64) (*WeatherResponse, error) {
-	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&current=%s&daily=%s&timezone=auto",
+	url := fmt.Sprintf("%s?latitude=%f&longitude=%f&current=%s&daily=%s&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=America%%2FNew_York",
 		baseURL, lat, lon, currentParams, dailyParams)
 
 	resp, err := client.Get(url)

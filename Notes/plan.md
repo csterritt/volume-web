@@ -54,6 +54,41 @@ For each endpoint:
 
 ---
 
+# CLI Conversion Plan (mow.cli)
+
+## Overview
+Convert the application from a direct web server launch to a `mow.cli` multi-command application with two commands:
+- `serve` — starts the existing Fiber volume control web server
+- `weather` — displays current weather and 7-day forecast for hardcoded location (39.0438, -77.4874)
+
+## Dependencies
+- Add `github.com/jawher/mow.cli` to go.mod
+
+## Implementation Steps
+
+### 1. Refactor `main.go`
+- Extract server startup logic into `startServer()` function
+- Create `mow.cli` app with name "volume-web"
+- Add `serve` command that calls `startServer()`
+- Add `weather` command that calls `weather.GetWeather()` and formats output
+
+### 2. Add Weather Display (`weather/display.go`)
+- `FormatWeather(w *WeatherResponse) string` — formats weather data for terminal display
+- Show current conditions: temperature, feels-like, humidity, pressure, wind
+- Show 7-day daily forecast: date, high/low, precipitation probability, condition
+
+### 3. Test Modifications
+- Existing `main_test.go` tests remain unchanged (they test VolumeState/boundaries, not main())
+- Add tests for `FormatWeather` in weather package
+- Existing weather API tests remain unchanged
+
+## Pitfalls
+- `mow.cli` uses `app.Run(os.Args)` which calls `os.Exit` on error — keep action logic in separate testable functions
+- Existing tests reference package-level vars (`volumeStep`, `VolumeState`) — those stay in main package
+- The `serve` command blocks (Fiber server), so it must be the last thing called
+
+---
+
 # Weather Package Implementation Plan
 
 ## Overview

@@ -24,7 +24,6 @@ const sampleAPIResponse = `{
 		"temperature_2m": "°C",
 		"apparent_temperature": "°C",
 		"relative_humidity_2m": "%",
-		"surface_pressure": "hPa",
 		"wind_speed_10m": "km/h",
 		"wind_direction_10m": "°",
 		"weather_code": "wmo code"
@@ -34,7 +33,6 @@ const sampleAPIResponse = `{
 		"temperature_2m": 0.7,
 		"apparent_temperature": -3.6,
 		"relative_humidity_2m": 59,
-		"surface_pressure": 1014.2,
 		"wind_speed_10m": 8.9,
 		"wind_direction_10m": 122,
 		"weather_code": 0
@@ -71,7 +69,6 @@ func TestParseWeatherResponse(t *testing.T) {
 	assert.InDelta(t, 0.7, resp.Current.Temperature, 0.01)
 	assert.InDelta(t, -3.6, resp.Current.ApparentTemperature, 0.01)
 	assert.Equal(t, 59, resp.Current.Humidity)
-	assert.InDelta(t, 1014.2, resp.Current.Pressure, 0.1)
 	assert.InDelta(t, 8.9, resp.Current.WindSpeed, 0.01)
 	assert.Equal(t, 122, resp.Current.WindDirection)
 	assert.Equal(t, 0, resp.Current.WeatherCode)
@@ -95,7 +92,7 @@ func TestGetWeatherWithMockServer(t *testing.T) {
 		q := r.URL.Query()
 		assert.Equal(t, "39.043800", q.Get("latitude"))
 		assert.Equal(t, "-77.487400", q.Get("longitude"))
-		assert.Equal(t, "auto", q.Get("timezone"))
+		assert.Equal(t, "America/New_York", q.Get("timezone"))
 		assert.NotEmpty(t, q.Get("current"))
 		assert.NotEmpty(t, q.Get("daily"))
 
