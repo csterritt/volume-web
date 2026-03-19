@@ -1,44 +1,63 @@
-Set up a basic web server that uses the Fiber web framework. See @https://gofiber.io for details.
+# Weather Package Implementation Plan
 
-The server should have the following endpoints:
-- POST /api/v1/volume-up
-- POST /api/v1/volume-down
-- POST /api/v1/mute
+## Overview
+Create a new Go package named `weather` that retrieves current and forecast weather data using the Open-Meteo API.
 
-The response should be a JSON object with the following structure:
-{
-    "success": true
+## Requirements
+
+### Location
+- Default coordinates: 39.0438° N, -77.4874° W (Ashburn, Virginia area)
+- Package should accept any latitude/longitude parameters
+
+### API Integration
+- Use Open-Meteo API: https://open-meteo.com/en/docs
+- Retrieve both current weather and forecast data
+- Handle API errors and edge cases gracefully
+
+### Package Structure
+```
+weather/
+├── go.mod
+├── weather.go
+└── types.go
+```
+
+### Core Components
+
+#### 1. Data Structures (`types.go`)
+- `CurrentWeather` struct for current conditions
+- `ForecastWeather` struct for forecast data
+- `WeatherResponse` struct combining both
+- Include relevant fields: temperature, humidity, wind, precipitation, etc.
+
+#### 2. Main Function (`weather.go`)
+- `GetWeather(lat, lon float64) (*WeatherResponse, error)`
+- Construct API request with proper parameters
+- Parse JSON response into Go structs
+- Return structured data or error
+
+#### 3. Error Handling
+- Network timeout handling
+- API rate limiting
+- Invalid coordinates
+- JSON parsing errors
+
+### API Parameters to Include
+- Current weather: temperature, apparent_temperature, humidity, pressure, wind speed/direction
+- Daily forecast: max/min temperature, precipitation probability
+- Hourly forecast (optional): temperature, precipitation
+- Weather codes for conditions
+
+### Testing
+- Unit tests for data parsing
+- Mock API responses for testing
+- Error scenario testing
+
+### Usage Example
+```go
+weather, err := GetWeather(39.0438, -77.4874)
+if err != nil {
+    log.Fatal(err)
 }
-
-On failure, the response should be a JSON object with the following structure:
-{
-    "success": false,
-    "error": "error message"
-}
-
-The server should use a file at /Users/chris/tmp/volume.json to store the current volume and
-mute state.
-
-If the file does not exist, the server should run the following shell command:
-
-osascript -e 'set ovol to output volume of (get volume settings)'
-
-To retrieve the current volume, store that, and set mute to false.
-
-When the server starts, if the file exists, it should read the file and set the volume and
-mute state accordingly.
-
-It sets the volume by doing a shell command to the following format:
-
-osascript -e "set volume output volume 25"
-
-It mutes the volume by doing a shell command to the following format:
-
-osascript -e "set volume output muted 1"
-
-And unmutes the volume by doing a shell command to the following format:
-
-osascript -e "set volume output muted 0"
-
-So when a "change" request is received, the server should read the file, update the volume,
-and write the file back. Then it should do the shell command to set the volume.
+fmt.Printf("Current temperature: %.1f°C\n", weather.Current.Temperature)
+```
