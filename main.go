@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 
 	cli "github.com/jawher/mow.cli"
 
@@ -90,11 +91,17 @@ func startServer() {
 		return
 	}
 
+	wCache := weather.NewWeatherCache(func() (*weather.WeatherResponse, error) {
+		return weather.GetWeather(defaultLat, defaultLon)
+	}, 10*time.Minute)
+	defer wCache.Stop()
+
 	app := fiber.New()
 
 	app.Post("/api/v1/volume-up", handleVolumeUp)
 	app.Post("/api/v1/volume-down", handleVolumeDown)
 	app.Post("/api/v1/mute", handleMute)
+	app.Get("/weather", handleWeather(wCache))
 
 	fmt.Println("Volume control server starting on :3400")
 	if err := app.Listen(":3400"); err != nil {
@@ -207,6 +214,27 @@ func handleMute(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(Response{Success: true})
+}
+
+type WeatherEndpointResponse struct {
+	Weather   *weather.WeatherResponse `json:"weather"`
+	Timestamp string                   `json:"timestamp"`
+}
+
+func handleWeather(cache *weather.WeatherCache) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		data := cache.Get()
+		if data == nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(Response{
+				Success: false,
+				Error:   "weather data not yet available",
+			})
+		}
+		return c.JSON(WeatherEndpointResponse{
+			Weather:   data,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
 }
 
 func saveVolumeState() error {

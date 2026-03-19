@@ -88,10 +88,23 @@ Convert the application from a direct web server launch to a `mow.cli` multi-com
 - Outputs the `WeatherResponse` struct as indented JSON to stdout
 - Add `FormatWeatherJSON(w *WeatherResponse) (string, error)` to `weather/display.go`
 
+### 5. Weather Cache & `/weather` Endpoint
+- Add `weather/cache.go` with `WeatherCache` struct
+  - Holds `*WeatherResponse`, `sync.RWMutex`, and a fetch function for testability
+  - `NewWeatherCache(fetchFn, interval)` — creates cache and starts background goroutine
+  - Background goroutine: fetches weather immediately, then every 10 minutes; updates cache on success
+  - `Get() *WeatherResponse` — returns cached data (read-locked)
+- Add `weather/cache_test.go` — tests with mock fetch function
+- Add `GET /weather` endpoint in `startServer()`
+  - Returns JSON: `{"weather": <cached WeatherResponse>, "timestamp": "<current time>"}`
+  - Returns 503 if cache is empty (not yet fetched)
+
 ## Pitfalls
 - `mow.cli` uses `app.Run(os.Args)` which calls `os.Exit` on error — keep action logic in separate testable functions
 - Existing tests reference package-level vars (`volumeStep`, `VolumeState`) — those stay in main package
 - The `serve` command blocks (Fiber server), so it must be the last thing called
+- Weather cache goroutine should log errors but not crash — the server must stay up even if the API is unreachable
+- Use `RWMutex` (not `Mutex`) so concurrent `/weather` reads don't block each other
 
 ---
 
