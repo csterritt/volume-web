@@ -13,13 +13,14 @@ import (
 	cli "github.com/jawher/mow.cli"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
 
 	"volume-web/weather"
 )
 
 const (
 	volumeFilePath = "/Users/chris/tmp/volume.json"
-	volumeStep     = 5
+	volumeStep     = 3
 )
 
 type VolumeState struct {
@@ -45,10 +46,12 @@ const (
 func main() {
 	app := cli.App("volume-web", "Volume control server and weather tool")
 
-	app.Command("serve", "Start the volume control web server", cmdServe)
-	app.Command("weather", "Display current weather and forecast", cmdWeather)
-	app.Command("weather-json", "Display current weather and forecast as JSON", cmdWeatherJSON)
-
+	// app.Command("serve", "Start the volume control web server", cmdServe)
+	// app.Command("weather", "Display current weather and forecast", cmdWeather)
+	// app.Command("weather-json", "Display current weather and forecast as JSON", cmdWeatherJSON)
+	app.Action = func() {
+		startServer()
+	}
 	app.Run(os.Args)
 }
 
@@ -97,6 +100,7 @@ func startServer() {
 	defer wCache.Stop()
 
 	app := fiber.New()
+	app.Use(logger.New())
 
 	app.Post("/api/v1/volume-up", handleVolumeUp)
 	app.Post("/api/v1/volume-down", handleVolumeDown)
