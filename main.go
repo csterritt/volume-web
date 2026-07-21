@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 package main
 
 import (
@@ -39,8 +43,8 @@ var (
 )
 
 const (
-	defaultLat = 39.0438
-	defaultLon = -77.4874
+	defaultLat = 51.5085
+	defaultLon = -0.1257
 )
 
 func main() {
