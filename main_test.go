@@ -47,7 +47,7 @@ func TestSaveVolumeState(t *testing.T) {
 
 func TestVolumeBoundaries(t *testing.T) {
 	// Test volume up boundary
-	currentVolume := 95
+	currentVolume := 100 - volumeStep + 1
 	newVolume := currentVolume + volumeStep
 	if newVolume > 100 {
 		newVolume = 100
@@ -55,7 +55,7 @@ func TestVolumeBoundaries(t *testing.T) {
 	assert.Equal(t, 100, newVolume)
 
 	// Test volume down boundary
-	currentVolume = 5
+	currentVolume = volumeStep - 1
 	newVolume = currentVolume - volumeStep
 	if newVolume < 0 {
 		newVolume = 0

@@ -5,12 +5,16 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +29,20 @@ import (
 const (
 	volumeFilePath = "/Users/chris/tmp/volume.json"
 	volumeStep     = 3
+
+	defaultHTTPPort    = 3400
+	defaultControlPort = 3401
+
+	commandTimeout   = 5 * time.Second
+	reconnectMinWait = 1 * time.Second
+	reconnectMaxWait = 30 * time.Second
+)
+
+// Volume command names sent from server to client.
+const (
+	CmdVolumeUp   = "volume-up"
+	CmdVolumeDown = "volume-down"
+	CmdMute       = "mute"
 )
 
 type VolumeState struct {
@@ -37,9 +55,20 @@ type Response struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// Command is sent from server to client over the control connection.
+type Command struct {
+	Name string `json:"name"`
+}
+
+// CommandResult is sent from client back to server over the control connection.
+type CommandResult struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
 var (
-	mu     sync.Mutex
-	state  VolumeState
+	mu    sync.Mutex
+	state VolumeState
 )
 
 const (
@@ -50,70 +79,261 @@ const (
 func main() {
 	app := cli.App("volume-web", "Volume control server and weather tool")
 
-	// app.Command("serve", "Start the volume control web server", cmdServe)
-	// app.Command("weather", "Display current weather and forecast", cmdWeather)
-	// app.Command("weather-json", "Display current weather and forecast as JSON", cmdWeatherJSON)
-	app.Action = func() {
-		startServer()
-	}
+	app.Command("server", "Serve weather data and accept volume commands, forwarding them to a connected client", cmdServer)
+	app.Command("client", "Connect to a server and execute forwarded volume commands", cmdClient)
+
 	app.Run(os.Args)
 }
 
-func cmdServe(cmd *cli.Cmd) {
+func cmdServer(cmd *cli.Cmd) {
+	cmd.Spec = "[--port] [--control-port]"
+
+	httpPort := cmd.IntOpt("p port", defaultHTTPPort, "HTTP port for weather and volume API")
+	controlPort := cmd.IntOpt("c control-port", defaultControlPort, "TCP port for client control connections")
+
 	cmd.Action = func() {
-		startServer()
+		startServer(*httpPort, *controlPort)
 	}
 }
 
-func cmdWeather(cmd *cli.Cmd) {
+func cmdClient(cmd *cli.Cmd) {
+	cmd.Spec = "[--server]"
+
+	serverAddr := cmd.StringOpt("s server", fmt.Sprintf("localhost:%d", defaultControlPort), "Server control address (host:port)")
+
 	cmd.Action = func() {
-		resp, err := weather.GetWeather(defaultLat, defaultLon)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching weather: %v\n", err)
-			cli.Exit(1)
-		}
-		fmt.Print(weather.FormatWeather(resp))
+		startClient(*serverAddr)
 	}
 }
 
-func cmdWeatherJSON(cmd *cli.Cmd) {
-	cmd.Action = func() {
-		resp, err := weather.GetWeather(defaultLat, defaultLon)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching weather: %v\n", err)
-			cli.Exit(1)
-		}
-		output, err := weather.FormatWeatherJSON(resp)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error formatting weather JSON: %v\n", err)
-			cli.Exit(1)
-		}
-		fmt.Println(output)
-	}
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
+
+// ControlServer accepts a client connection and forwards volume commands to it.
+type ControlServer struct {
+	mu     sync.Mutex
+	conn   net.Conn
+	reader *bufio.Reader
 }
 
-func startServer() {
-	if err := initializeVolumeState(); err != nil {
-		fmt.Printf("Failed to initialize volume state: %v\n", err)
+var errNoClient = errors.New("no volume client connected")
+
+func (s *ControlServer) listen(port int) {
+	addr := fmt.Sprintf(":%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		fmt.Printf("Control listener failed to start: %v\n", err)
 		return
 	}
+	fmt.Printf("Control listener started on %s\n", addr)
 
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Printf("Control accept error: %v\n", err)
+			continue
+		}
+		s.setClient(conn)
+	}
+}
+
+func (s *ControlServer) setClient(conn net.Conn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.conn != nil {
+		fmt.Printf("Replacing existing client %s with %s\n", s.conn.RemoteAddr(), conn.RemoteAddr())
+		s.conn.Close()
+	} else {
+		fmt.Printf("Client connected from %s\n", conn.RemoteAddr())
+	}
+	s.conn = conn
+	s.reader = bufio.NewReader(conn)
+}
+
+func (s *ControlServer) dropClient() {
+	if s.conn != nil {
+		fmt.Printf("Client %s disconnected\n", s.conn.RemoteAddr())
+		s.conn.Close()
+	}
+	s.conn = nil
+	s.reader = nil
+}
+
+// send forwards a command to the connected client and waits for its result.
+func (s *ControlServer) send(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.conn == nil {
+		return errNoClient
+	}
+
+	payload, err := json.Marshal(Command{Name: name})
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %w", err)
+	}
+	payload = append(payload, '\n')
+
+	deadline := time.Now().Add(commandTimeout)
+	s.conn.SetDeadline(deadline)
+	defer s.conn.SetDeadline(time.Time{})
+
+	if _, err := s.conn.Write(payload); err != nil {
+		s.dropClient()
+		return fmt.Errorf("failed to send command to client: %w", err)
+	}
+
+	line, err := s.reader.ReadBytes('\n')
+	if err != nil {
+		s.dropClient()
+		return fmt.Errorf("failed to read result from client: %w", err)
+	}
+
+	var result CommandResult
+	if err := json.Unmarshal(line, &result); err != nil {
+		return fmt.Errorf("invalid result from client: %w", err)
+	}
+	if !result.Success {
+		return errors.New(result.Error)
+	}
+	return nil
+}
+
+func startServer(httpPort, controlPort int) {
 	wCache := weather.NewWeatherCache(func() (*weather.WeatherResponse, error) {
 		return weather.GetWeather(defaultLat, defaultLon)
 	}, 10*time.Minute)
 	defer wCache.Stop()
 
+	control := &ControlServer{}
+	go control.listen(controlPort)
+
 	app := fiber.New()
 	app.Use(logger.New())
 
-	app.Post("/api/v1/volume-up", handleVolumeUp)
-	app.Post("/api/v1/volume-down", handleVolumeDown)
-	app.Post("/api/v1/mute", handleMute)
+	app.Post("/api/v1/volume-up", forwardHandler(control, CmdVolumeUp))
+	app.Post("/api/v1/volume-down", forwardHandler(control, CmdVolumeDown))
+	app.Post("/api/v1/mute", forwardHandler(control, CmdMute))
 	app.Get("/weather", handleWeather(wCache))
 
-	fmt.Println("Volume control server starting on :3400")
-	if err := app.Listen(":3400"); err != nil {
+	addr := fmt.Sprintf(":%d", httpPort)
+	fmt.Printf("Volume control server starting on %s\n", addr)
+	if err := app.Listen(addr); err != nil {
 		fmt.Printf("Server failed to start: %v\n", err)
+	}
+}
+
+func forwardHandler(control *ControlServer, name string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if err := control.send(name); err != nil {
+			status := fiber.StatusBadGateway
+			if errors.Is(err, errNoClient) {
+				status = fiber.StatusServiceUnavailable
+			}
+			return c.Status(status).JSON(Response{Success: false, Error: err.Error()})
+		}
+		return c.JSON(Response{Success: true})
+	}
+}
+
+type WeatherEndpointResponse struct {
+	Weather   *weather.WeatherResponse `json:"weather"`
+	Timestamp string                   `json:"timestamp"`
+}
+
+func handleWeather(cache *weather.WeatherCache) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		data := cache.Get()
+		if data == nil {
+			return c.Status(fiber.StatusServiceUnavailable).JSON(Response{
+				Success: false,
+				Error:   "weather data not yet available",
+			})
+		}
+		return c.JSON(WeatherEndpointResponse{
+			Weather:   data,
+			Timestamp: time.Now().Format(time.RFC3339),
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+func startClient(serverAddr string) {
+	if err := initializeVolumeState(); err != nil {
+		fmt.Printf("Failed to initialize volume state: %v\n", err)
+		return
+	}
+
+	wait := reconnectMinWait
+	for {
+		fmt.Printf("Connecting to server at %s\n", serverAddr)
+		conn, err := net.Dial("tcp", serverAddr)
+		if err != nil {
+			fmt.Printf("Connection failed: %v (retrying in %s)\n", err, wait)
+			time.Sleep(wait)
+			wait *= 2
+			if wait > reconnectMaxWait {
+				wait = reconnectMaxWait
+			}
+			continue
+		}
+
+		wait = reconnectMinWait
+		fmt.Printf("Connected to server at %s\n", serverAddr)
+		if err := serveConnection(conn); err != nil {
+			fmt.Printf("Connection lost: %v\n", err)
+		}
+		conn.Close()
+		time.Sleep(wait)
+	}
+}
+
+// serveConnection reads commands from the server, executes them, and replies
+// with results until the connection fails.
+func serveConnection(conn net.Conn) error {
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return err
+		}
+
+		var cmd Command
+		result := CommandResult{Success: true}
+		if err := json.Unmarshal(line, &cmd); err != nil {
+			result = CommandResult{Success: false, Error: fmt.Sprintf("invalid command: %v", err)}
+		} else if err := executeCommand(cmd.Name); err != nil {
+			result = CommandResult{Success: false, Error: err.Error()}
+		}
+
+		fmt.Printf("Command %q -> success=%v %s\n", cmd.Name, result.Success, result.Error)
+
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return fmt.Errorf("failed to marshal result: %w", err)
+		}
+		payload = append(payload, '\n')
+		if _, err := conn.Write(payload); err != nil {
+			return err
+		}
+	}
+}
+
+func executeCommand(name string) error {
+	switch name {
+	case CmdVolumeUp:
+		return volumeUp()
+	case CmdVolumeDown:
+		return volumeDown()
+	case CmdMute:
+		return toggleMute()
+	default:
+		return fmt.Errorf("unknown command: %q", name)
 	}
 }
 
@@ -148,9 +368,7 @@ func initializeVolumeState() error {
 		return fmt.Errorf("failed to get current volume: %w", err)
 	}
 
-	volumeStr := string(output)
-	volumeStr = volumeStr[:len(volumeStr)-1] // Remove newline
-	volume, err := strconv.Atoi(volumeStr)
+	volume, err := strconv.Atoi(strings.TrimSpace(string(output)))
 	if err != nil {
 		return fmt.Errorf("failed to parse volume: %w", err)
 	}
@@ -163,7 +381,7 @@ func initializeVolumeState() error {
 	return saveVolumeState()
 }
 
-func handleVolumeUp(c *fiber.Ctx) error {
+func volumeUp() error {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -175,17 +393,12 @@ func handleVolumeUp(c *fiber.Ctx) error {
 	state.Volume = newVolume
 
 	if err := saveVolumeState(); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
+		return err
 	}
-
-	if err := setSystemVolume(newVolume); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
-	}
-
-	return c.JSON(Response{Success: true})
+	return setSystemVolume(newVolume)
 }
 
-func handleVolumeDown(c *fiber.Ctx) error {
+func volumeDown() error {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -197,52 +410,21 @@ func handleVolumeDown(c *fiber.Ctx) error {
 	state.Volume = newVolume
 
 	if err := saveVolumeState(); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
+		return err
 	}
-
-	if err := setSystemVolume(newVolume); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
-	}
-
-	return c.JSON(Response{Success: true})
+	return setSystemVolume(newVolume)
 }
 
-func handleMute(c *fiber.Ctx) error {
+func toggleMute() error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	state.Muted = !state.Muted
 
 	if err := saveVolumeState(); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
+		return err
 	}
-
-	if err := setSystemMute(state.Muted); err != nil {
-		return c.JSON(Response{Success: false, Error: err.Error()})
-	}
-
-	return c.JSON(Response{Success: true})
-}
-
-type WeatherEndpointResponse struct {
-	Weather   *weather.WeatherResponse `json:"weather"`
-	Timestamp string                   `json:"timestamp"`
-}
-
-func handleWeather(cache *weather.WeatherCache) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		data := cache.Get()
-		if data == nil {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(Response{
-				Success: false,
-				Error:   "weather data not yet available",
-			})
-		}
-		return c.JSON(WeatherEndpointResponse{
-			Weather:   data,
-			Timestamp: time.Now().Format(time.RFC3339),
-		})
-	}
+	return setSystemMute(state.Muted)
 }
 
 func saveVolumeState() error {
