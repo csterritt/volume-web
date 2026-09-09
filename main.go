@@ -97,12 +97,13 @@ func cmdServer(cmd *cli.Cmd) {
 }
 
 func cmdClient(cmd *cli.Cmd) {
-	cmd.Spec = "[--server]"
+	cmd.Spec = "[--control-port] HOST"
 
-	serverAddr := cmd.StringOpt("s server", fmt.Sprintf("localhost:%d", defaultControlPort), "Server control address (host:port)")
+	controlPort := cmd.IntOpt("c control-port", defaultControlPort, "TCP port of the server's control listener")
+	host := cmd.StringArg("HOST", "", "Hostname of the server to connect to")
 
 	cmd.Action = func() {
-		startClient(*serverAddr)
+		startClient(net.JoinHostPort(*host, strconv.Itoa(*controlPort)))
 	}
 }
 
